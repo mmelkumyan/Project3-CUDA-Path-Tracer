@@ -22,6 +22,9 @@
 
 #define ERRORCHECK 1
 
+#define SORT_PATH_BY_MATERIALS 0
+#define COMPACT_DEAD_PATHS 1
+
 #define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 #define checkCUDAError(msg) checkCUDAErrorFn(msg, FILENAME, __LINE__)
 void checkCUDAErrorFn(const char* msg, const char* file, int line)
@@ -470,11 +473,12 @@ void pathtrace(uchar4* pbo, int frame, int iter)
         // TODO: compare between directly shading the path segments and shading
         // path segments that have been reshuffled to be contiguous in memory.
 
+#if SORT_PATH_BY_MATERIALS
         thrust::sort_by_key(dev_thrust_intersections, 
                             dev_thrust_intersections + num_paths,
                             dev_thrust_paths,
                             compare_material());
-
+#endif
 
         // Sort paths AND intersectiosn by material ID
         // thrust::sort_by_key(dev_thrust_path_materials, 
@@ -490,12 +494,14 @@ void pathtrace(uchar4* pbo, int frame, int iter)
             dev_materials
         );
         
+#if COMPACT_DEAD_PATHS
         // Stream compact! Remove dead rays from the array
         // Call thrusts's partition
         thrust::device_ptr<PathSegment> mid = thrust::partition(dev_thrust_paths, 
                                                                 dev_thrust_paths+num_paths, 
                                                                 is_path_alive());
         num_paths = mid - dev_thrust_paths;
+#endif
 
         // Update GUI
         if (guiData != NULL)

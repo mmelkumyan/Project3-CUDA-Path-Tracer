@@ -18,6 +18,7 @@
 #include <cuda_gl_interop.h>
 
 #include <cstdlib>
+#include <filesystem>
 #include <cstring>
 #include <iostream>
 #include <fstream>
@@ -307,7 +308,7 @@ void mainLoop()
 
         runCuda();
 
-        std::string title = "CIS565 Path Tracer | " + utilityCore::convertIntToString(iteration) + " Iterations";
+        std::string title = "CIS565 Path Tracer | Mark Melkumyan Fall 2026 |" + utilityCore::convertIntToString(iteration) + " Iterations";
         glfwSetWindowTitle(window, title.c_str());
         glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
         glBindTexture(GL_TEXTURE_2D, displayImage);
@@ -408,10 +409,13 @@ void saveImage()
         }
     }
 
-    std::string filename = renderState->imageName;
+    // Output to /out folder
+    std::filesystem::path outDir = "out";
+    std::filesystem::create_directories(outDir);
+
     std::ostringstream ss;
-    ss << filename << "." << startTimeString << "." << samples << "samp";
-    filename = ss.str();
+    ss << renderState->imageName << "." << startTimeString << "." << samples << "samp";
+    std::string filename = (outDir / ss.str()).string();
 
     // CHECKITOUT
     img.savePNG(filename);

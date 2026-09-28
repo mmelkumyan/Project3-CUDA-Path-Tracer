@@ -51,7 +51,18 @@ __host__ __device__ void scatterRay(
     const Material &m,
     thrust::default_random_engine &rng)
 {
-    // TODO: implement this.
-    // A basic implementation of pure-diffuse shading will just call the
-    // calculateRandomDirectionInHemisphere defined above.
+    // If this was the last bounce and we HAVEN'T hit a light yet, ray is black!
+    pathSegment.remainingBounces--;
+    if (pathSegment.remainingBounces == 0) {
+        pathSegment.color = glm::vec3(0.f);
+        return;
+    }
+    
+    // Accumulate surface color
+    pathSegment.color *= m.color;
+
+    // Update new path in place
+    pathSegment.ray.origin = intersect;
+    pathSegment.ray.direction = calculateRandomDirectionInHemisphere(normal, rng); // Sample BSDF to get next dir
+    
 }

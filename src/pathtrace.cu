@@ -185,8 +185,8 @@ __global__ void computeIntersections(
         glm::vec3 tmp_intersect;
         glm::vec3 tmp_normal;
 
-        // naive parse through global geoms
-
+        // Naively check ray against all geoms
+        // TODO- BVH here!
         for (int i = 0; i < geoms_size; i++)
         {
             Geom& geom = geoms[i];
@@ -212,13 +212,14 @@ __global__ void computeIntersections(
             }
         }
 
-        if (hit_geom_index == -1)
-        {
+        // Save hit info to intersections array for use in later pipeline stages
+        // The ray hit nothing
+        // TODO: skybox? env map?
+        if (hit_geom_index == -1) {
             intersections[path_index].t = -1.0f;
         }
-        else
-        {
-            // The ray hits something
+        // The ray hit something
+        else {
             intersections[path_index].t = t_min;
             intersections[path_index].materialId = geoms[hit_geom_index].materialid;
             intersections[path_index].surfaceNormal = normal;
@@ -279,6 +280,59 @@ __global__ void shadeFakeMaterial(
         }
     }
 }
+
+// TODO - SPECULAR
+__global__ void shadeDiffuseMaterial(
+    int iter,
+    int num_paths,
+    ShadeableIntersection* shadeableIntersections,
+    PathSegment* pathSegments,
+    Material* materials)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= num_paths) {
+        return;
+    }
+
+    // TEMP DEBUG
+    if (pathSegments[idx].remainingBounces <= 0) {
+        return;
+    }
+
+    ShadeableIntersection intersection = shadeableIntersections[idx];
+    // IF we hit something!
+    if (intersection.t > 0.0f)
+    {
+        // Set up the RNG
+        thrust::default_random_engine rng = makeSeededRandomEngine(iter, idx, pathSegments[idx].remainingBounces);
+        // thrust::uniform_real_distribution<float> u01(0, 1);
+
+        // Get material
+        Material material = materials[intersection.materialId];
+
+        // If object is a light (has emittance) end ray and add color?
+        // Lit rays END the recursion!
+        if (material.emittance > 0.0f) {
+            pathSegments[idx].color *= (material.color * material.emittance);
+            pathSegments[idx].remainingBounces = 0;
+        }
+
+        // If object is standard surface
+        else {
+            scatterRay(pathSegments[idx], 
+                pathSegments[idx].ray.origin + pathSegments[idx].ray.direction * intersection.t + intersection.surfaceNormal * 0.001f,
+                intersection.surfaceNormal,
+                material,
+                rng);
+        }
+    }
+    // Terminate ray
+    else {
+        pathSegments[idx].color = glm::vec3(0.0f);
+        pathSegments[idx].remainingBounces = 0;
+    }
+}
+
 
 // Add the current iteration's output to the overall image
 __global__ void finalGather(int nPaths, glm::vec3* image, PathSegment* iterationPaths)
@@ -343,7 +397,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
     // TODO: perform one iteration of path tracing
 
     generateRayFromCamera<<<blocksPerGrid2d, blockSize2d>>>(cam, iter, traceDepth, dev_paths);
-    checkCUDAError("generate camera ray");
+    checkCUDAError("generateRayFromCamera 0");
 
     int depth = 0;
     PathSegment* dev_path_end = dev_paths + pixelcount;
@@ -353,12 +407,11 @@ void pathtrace(uchar4* pbo, int frame, int iter)
     // Shoot ray into scene, bounce between objects, push shading chunks
 
     bool iterationComplete = false;
-    while (!iterationComplete)
-    {
+    while (!iterationComplete) {
         // clean shading chunks
         cudaMemset(dev_intersections, 0, pixelcount * sizeof(ShadeableIntersection));
 
-        // tracing
+        // Launch kernel to computer intersections w/ each ray
         dim3 numblocksPathSegmentTracing = (num_paths + blockSize1d - 1) / blockSize1d;
         computeIntersections<<<numblocksPathSegmentTracing, blockSize1d>>> (
             depth,
@@ -368,32 +421,62 @@ void pathtrace(uchar4* pbo, int frame, int iter)
             hst_scene->geoms.size(),
             dev_intersections
         );
-        checkCUDAError("trace one bounce");
+        checkCUDAError("computeIntersections");
+        // Sync here- all paths should be done intersectings before continuing
         cudaDeviceSynchronize();
         depth++;
 
-        // TODO:
+        // DEBUG PRINT
+        // if (iter == 1) {
+        printf("depth %d: %d paths\n", depth, num_paths);
+        // }
+
         // --- Shading Stage ---
-        // Shade path segments based on intersections and generate new rays by
-        // evaluating the BSDF.
-        // Start off with just a big kernel that handles all the different
-        // materials you have in the scenefile.
+
         // TODO: compare between directly shading the path segments and shading
         // path segments that have been reshuffled to be contiguous in memory.
 
-        shadeFakeMaterial<<<numblocksPathSegmentTracing, blockSize1d>>>(
+        shadeDiffuseMaterial<<<numblocksPathSegmentTracing, blockSize1d>>>(
             iter,
             num_paths,
             dev_intersections,
             dev_paths,
             dev_materials
         );
-        iterationComplete = true; // TODO: should be based off stream compaction results.
+        
+        // Stream compact! Remove dead rays from the array
+        // TODO - thrust stream compact here...
 
+        // Create device pts
+        // thrust::device_ptr<int> dev_thrust_idata(dev_idata);
+        // thrust::device_ptr<int> dev_thrust_odata(dev_odata);
+
+        // // Call thrusts's scan
+        // timer().startGpuTimer();
+        // thrust::copy_if();
+        // timer().endGpuTimer();
+
+        
+        /*
+        Psuedocode
+
+        run helper func to cut size of paths. Will reduce num_paths number.
+        Stream compact order using thrust:
+        - pad w/ zeros up to
+
+        */
+
+
+
+        // Update GUI
         if (guiData != NULL)
         {
             guiData->TracedDepth = depth;
         }
+
+        // If we've hit max depth exit loop
+        iterationComplete = (depth >= traceDepth);
+        // if pa
     }
 
     // Assemble this iteration and apply it to the image

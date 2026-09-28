@@ -141,6 +141,9 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
     int x = (blockIdx.x * blockDim.x) + threadIdx.x;
     int y = (blockIdx.y * blockDim.y) + threadIdx.y;
 
+    thrust::default_random_engine rng = makeSeededRandomEngine(iter, x, y);
+    thrust::uniform_real_distribution<float> u01(0, 1); //u01(rng)
+    
     if (x < cam.resolution.x && y < cam.resolution.y) {
         int index = x + (y * cam.resolution.x);
         PathSegment& segment = pathSegments[index];
@@ -148,10 +151,13 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
         segment.ray.origin = cam.position;
         segment.color = glm::vec3(1.0f, 1.0f, 1.0f);
 
-        // TODO: implement antialiasing by jittering the ray
+        // Add subpixel jitter for anti-aliasing
+        float randX = u01(rng) - 0.5f;
+        float randY = u01(rng) - 0.5f;
+
         segment.ray.direction = glm::normalize(cam.view
-            - cam.right * cam.pixelLength.x * ((float)x - (float)cam.resolution.x * 0.5f)
-            - cam.up * cam.pixelLength.y * ((float)y - (float)cam.resolution.y * 0.5f)
+            - cam.right * cam.pixelLength.x * ((float)x - (float)cam.resolution.x * 0.5f + randX)
+            - cam.up * cam.pixelLength.y * ((float)y - (float)cam.resolution.y * 0.5f + randY)
         );
 
         segment.pixelIndex = index;
@@ -436,7 +442,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
         depth++;
 
         // DEBUG PRINT
-        printf("depth %d: %d paths\n", depth, num_paths);
+        // printf("depth %d: %d paths\n", depth, num_paths);
 
         // --- Shading Stage ---
 

@@ -6,6 +6,8 @@
 #include <thrust/execution_policy.h>
 #include <thrust/random.h>
 #include <thrust/remove.h>
+#include <thrust/partition.h>
+#include <thrust/device_vector.h>
 
 #include "sceneStructs.h"
 #include "scene.h"
@@ -346,6 +348,12 @@ __global__ void finalGather(int nPaths, glm::vec3* image, PathSegment* iteration
     }
 }
 
+struct is_path_alive {
+    __host__ __device__ bool operator()(const PathSegment& path) const { 
+        return path.remainingBounces > 0;
+    }
+};
+
 /**
  * Wrapper for the __global__ call that sets up the kernel calls and does a ton
  * of memory management
@@ -394,14 +402,15 @@ void pathtrace(uchar4* pbo, int frame, int iter)
     // * Finally, add this iteration's results to the image. This has been done
     //   for you.
 
-    // TODO: perform one iteration of path tracing
-
     generateRayFromCamera<<<blocksPerGrid2d, blockSize2d>>>(cam, iter, traceDepth, dev_paths);
     checkCUDAError("generateRayFromCamera 0");
 
     int depth = 0;
     PathSegment* dev_path_end = dev_paths + pixelcount;
     int num_paths = dev_path_end - dev_paths;
+
+    // Create device pts for thrust
+    thrust::device_ptr<PathSegment> dev_thrust_paths(dev_paths);
 
     // --- PathSegment Tracing Stage ---
     // Shoot ray into scene, bounce between objects, push shading chunks
@@ -427,9 +436,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
         depth++;
 
         // DEBUG PRINT
-        // if (iter == 1) {
         printf("depth %d: %d paths\n", depth, num_paths);
-        // }
 
         // --- Shading Stage ---
 
@@ -445,28 +452,11 @@ void pathtrace(uchar4* pbo, int frame, int iter)
         );
         
         // Stream compact! Remove dead rays from the array
-        // TODO - thrust stream compact here...
-
-        // Create device pts
-        // thrust::device_ptr<int> dev_thrust_idata(dev_idata);
-        // thrust::device_ptr<int> dev_thrust_odata(dev_odata);
-
-        // // Call thrusts's scan
-        // timer().startGpuTimer();
-        // thrust::copy_if();
-        // timer().endGpuTimer();
-
-        
-        /*
-        Psuedocode
-
-        run helper func to cut size of paths. Will reduce num_paths number.
-        Stream compact order using thrust:
-        - pad w/ zeros up to
-
-        */
-
-
+        // Call thrusts's partition
+        thrust::device_ptr<PathSegment> mid = thrust::partition(dev_thrust_paths, 
+                                                                dev_thrust_paths+num_paths, 
+                                                                is_path_alive());
+        num_paths = mid - dev_thrust_paths;
 
         // Update GUI
         if (guiData != NULL)
@@ -475,13 +465,12 @@ void pathtrace(uchar4* pbo, int frame, int iter)
         }
 
         // If we've hit max depth exit loop
-        iterationComplete = (depth >= traceDepth);
-        // if pa
+        iterationComplete = (depth >= traceDepth || num_paths == 0);
     }
 
     // Assemble this iteration and apply it to the image
     dim3 numBlocksPixels = (pixelcount + blockSize1d - 1) / blockSize1d;
-    finalGather<<<numBlocksPixels, blockSize1d>>>(num_paths, dev_image, dev_paths);
+    finalGather<<<numBlocksPixels, blockSize1d>>>(pixelcount, dev_image, dev_paths);
 
     ///////////////////////////////////////////////////////////////////////////
 

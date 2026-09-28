@@ -84,7 +84,7 @@ static glm::vec3* dev_image = NULL;
 static Geom* dev_geoms = NULL;
 static Material* dev_materials = NULL;
 static PathSegment* dev_paths = NULL;
-static int* dev_path_materials = NULL;
+// static int* dev_path_materials = NULL;
 static ShadeableIntersection* dev_intersections = NULL;
 // TODO: static variables for device memory, any extra info you need, etc
 // ...
@@ -106,7 +106,7 @@ void pathtraceInit(Scene* scene)
 
     cudaMalloc(&dev_paths, pixelcount * sizeof(PathSegment));
     
-    cudaMalloc(&dev_path_materials, pixelcount * sizeof(int));
+    // cudaMalloc(&dev_path_materials, pixelcount * sizeof(int));
 
     cudaMalloc(&dev_geoms, scene->geoms.size() * sizeof(Geom));
     cudaMemcpy(dev_geoms, scene->geoms.data(), scene->geoms.size() * sizeof(Geom), cudaMemcpyHostToDevice);
@@ -126,7 +126,7 @@ void pathtraceFree()
 {
     cudaFree(dev_image);  // no-op if dev_image is null
     cudaFree(dev_paths);
-    cudaFree(dev_path_materials);
+    // cudaFree(dev_path_materials);
     cudaFree(dev_geoms);
     cudaFree(dev_materials);
     cudaFree(dev_intersections);
@@ -180,7 +180,7 @@ __global__ void computeIntersections(
     int depth,
     int num_paths,
     PathSegment* pathSegments,
-    int* pathMaterials,
+    // int* pathMaterials,
     Geom* geoms,
     int geoms_size,
     ShadeableIntersection* intersections)
@@ -241,7 +241,7 @@ __global__ void computeIntersections(
             intersections[path_index].surfaceNormal = normal;
 
             // Save material ID to it's own buffer for sorting
-            pathMaterials[path_index] = geoms[hit_geom_index].materialid;
+            // pathMaterials[path_index] = geoms[hit_geom_index].materialid;
         }
     }
 }
@@ -433,7 +433,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
     int num_paths = dev_path_end - dev_paths;
 
     // Create device pts for thrust
-    thrust::device_ptr<int> dev_thrust_path_materials(dev_path_materials);
+    // thrust::device_ptr<int> dev_thrust_path_materials(dev_path_materials);
     thrust::device_ptr<ShadeableIntersection> dev_thrust_intersections(dev_intersections);
     thrust::device_ptr<PathSegment> dev_thrust_paths(dev_paths);
 
@@ -444,7 +444,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
     while (!iterationComplete) {
         // clean shading chunks
         cudaMemset(dev_intersections, 0, pixelcount * sizeof(ShadeableIntersection));
-        cudaMemset(dev_path_materials, 0, pixelcount * sizeof(int));
+        // cudaMemset(dev_path_materials, 0, pixelcount * sizeof(int));
 
         // Launch kernel to computer intersections w/ each ray
         dim3 numblocksPathSegmentTracing = (num_paths + blockSize1d - 1) / blockSize1d;
@@ -452,7 +452,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
             depth,
             num_paths,
             dev_paths,
-            dev_path_materials,
+            // dev_path_materials,
             dev_geoms,
             hst_scene->geoms.size(),
             dev_intersections
@@ -470,10 +470,16 @@ void pathtrace(uchar4* pbo, int frame, int iter)
         // TODO: compare between directly shading the path segments and shading
         // path segments that have been reshuffled to be contiguous in memory.
 
+        thrust::sort_by_key(dev_thrust_intersections, 
+                            dev_thrust_intersections + num_paths,
+                            dev_thrust_paths,
+                            compare_material());
+
+
         // Sort paths AND intersectiosn by material ID
-        thrust::sort_by_key(dev_thrust_path_materials, 
-                            dev_thrust_path_materials + num_paths, 
-                            thrust::make_zip_iterator(dev_thrust_paths, dev_thrust_intersections));
+        // thrust::sort_by_key(dev_thrust_path_materials, 
+        //                     dev_thrust_path_materials + num_paths, 
+        //                     thrust::make_zip_iterator(dev_thrust_paths, dev_thrust_intersections));
 
         // Diffuse shading model
         shadeDiffuseMaterial<<<numblocksPathSegmentTracing, blockSize1d>>>(

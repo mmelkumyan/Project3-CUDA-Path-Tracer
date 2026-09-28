@@ -354,6 +354,12 @@ __global__ void finalGather(int nPaths, glm::vec3* image, PathSegment* iteration
     }
 }
 
+struct compare_material {
+    __host__ __device__ bool operator()(const ShadeableIntersection& a, const ShadeableIntersection& b) const { 
+        return a.materialId < b.materialId;
+    }
+};
+
 struct is_path_alive {
     __host__ __device__ bool operator()(const PathSegment& path) const { 
         return path.remainingBounces > 0;
@@ -445,10 +451,17 @@ void pathtrace(uchar4* pbo, int frame, int iter)
         // printf("depth %d: %d paths\n", depth, num_paths);
 
         // --- Shading Stage ---
-
+        
         // TODO: compare between directly shading the path segments and shading
         // path segments that have been reshuffled to be contiguous in memory.
 
+        thrust::device_ptr<ShadeableIntersection> dev_thrust_intersections(dev_intersections);
+        thrust::sort_by_key(dev_thrust_intersections, 
+                            dev_thrust_intersections + num_paths, 
+                            dev_thrust_paths, 
+                            compare_material());
+
+        // Diffuse shading model
         shadeDiffuseMaterial<<<numblocksPathSegmentTracing, blockSize1d>>>(
             iter,
             num_paths,

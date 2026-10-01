@@ -4,6 +4,8 @@
 #include <cuda.h>
 // #include <cuda::std::tuple>
 #include <cmath>
+#include <stb_image.h>
+
 #include <thrust/execution_policy.h>
 #include <thrust/random.h>
 #include <thrust/remove.h>
@@ -22,8 +24,18 @@
 
 #define ERRORCHECK 1
 
+// Mark feature flags
 #define SORT_PATH_BY_MATERIALS 0
 #define COMPACT_DEAD_PATHS 1
+
+// Env map
+#define ENABLE_ENV_MAP 0
+#define ENV_MAP_ROTATION_DEG 0.0f
+
+// Post process
+#define EXPOSURE 1.f
+#define ENABLE_GAMMA_CORRECTION 1
+
 
 #define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 #define checkCUDAError(msg) checkCUDAErrorFn(msg, FILENAME, __LINE__)
@@ -57,27 +69,40 @@ thrust::default_random_engine makeSeededRandomEngine(int iter, int index, int de
     return thrust::default_random_engine(h);
 }
 
-//Kernel that writes the image to the OpenGL PBO directly.
-__global__ void sendImageToPBO(uchar4* pbo, glm::ivec2 resolution, int iter, glm::vec3* image)
-{
+__device__ glm::ivec3 finalizeColor(glm::vec3 rgb, int iter) {
+    // Average the radiance 
+    rgb = rgb / (float) iter;
+
+    // Exposure knob
+    rgb *= EXPOSURE;
+
+    // Reinhard operator. [0,inf] -> [0,1)
+    rgb = rgb / (1.f + rgb); 
+    // float Lw = 4.f;
+    // rgb = rgb * (1.f + rgb / (Lw * Lw)) / (1.f + rgb);
+
+    // Gamma correct
+#if ENABLE_GAMMA_CORRECTION
+    rgb = glm::pow(rgb, glm::vec3(1.f / 2.2f)); 
+#endif
+
+    return glm::clamp(glm::ivec3(rgb * 255.f), 0, 255);
+} 
+
+// Kernel that writes the image to the OpenGL PBO directly.
+__global__ void sendImageToPBO(uchar4* pbo, glm::ivec2 resolution, int iter, glm::vec3* image) {
     int x = (blockIdx.x * blockDim.x) + threadIdx.x;
     int y = (blockIdx.y * blockDim.y) + threadIdx.y;
 
-    if (x < resolution.x && y < resolution.y)
-    {
+    if (x < resolution.x && y < resolution.y) {
         int index = x + (y * resolution.x);
-        glm::vec3 pix = image[index];
-
-        glm::ivec3 color;
-        color.x = glm::clamp((int)(pix.x / iter * 255.0), 0, 255);
-        color.y = glm::clamp((int)(pix.y / iter * 255.0), 0, 255);
-        color.z = glm::clamp((int)(pix.z / iter * 255.0), 0, 255);
+        glm::ivec3 color = finalizeColor(image[index], iter);
 
         // Each thread writes one pixel location in the texture (textel)
-        pbo[index].w = 0;
         pbo[index].x = color.x;
         pbo[index].y = color.y;
         pbo[index].z = color.z;
+        pbo[index].w = 0;
     }
 }
 
@@ -89,12 +114,37 @@ static Material* dev_materials = NULL;
 static PathSegment* dev_paths = NULL;
 // static int* dev_path_materials = NULL;
 static ShadeableIntersection* dev_intersections = NULL;
+
 // TODO: static variables for device memory, any extra info you need, etc
-// ...
+static cudaArray_t dev_envmap = NULL;
+static cudaTextureObject_t envmap_texObj = 0;
+
 
 void InitDataContainer(GuiDataContainer* imGuiData)
 {
     guiData = imGuiData;
+}
+
+float4* loadHdriMap(const char* path, int* width, int* height)
+{
+    int channels = 0;
+    float* rgb = stbi_loadf(path, width, height, &channels, 3);
+    if (rgb == nullptr) {
+        fprintf(stderr, "Failed to load HDRI %s: %s\n", path, stbi_failure_reason());
+        exit(EXIT_FAILURE);
+    }
+
+    const int pixelCount = (*width) * (*height);
+    float4* rgba = new float4[pixelCount];
+    for (int i = 0; i < pixelCount; i++) {
+        rgba[i] = make_float4(rgb[i * 3 + 0],
+                              rgb[i * 3 + 1],
+                              rgb[i * 3 + 2],
+                              1.0f);
+    }
+
+    stbi_image_free(rgb);
+    return rgba;
 }
 
 void pathtraceInit(Scene* scene)
@@ -122,6 +172,44 @@ void pathtraceInit(Scene* scene)
 
     // TODO: initialize any extra device memeory you need
 
+    // Load env map texture if the scene has one, else the handle stays 0 (black background)
+    if (ENABLE_ENV_MAP && !scene->envMapPath.empty()) {
+        // TODO: move to textures.h/cs?
+        int w, h;
+        const char* hdri_path = scene->envMapPath.c_str();
+        float4* hdri_rgba = loadHdriMap(hdri_path, &w, &h);
+
+        const cudaChannelFormatDesc envMapChannelDesc = cudaCreateChannelDesc<float4>();
+
+        cudaMallocArray(&dev_envmap, &envMapChannelDesc, w, h);
+
+        cudaMemcpy2DToArray(dev_envmap, 0, 0, 
+                            hdri_rgba, 
+                            w * sizeof(float4),
+                            w * sizeof(float4), 
+                            h,
+                            cudaMemcpyHostToDevice);
+        delete[] hdri_rgba;
+
+        // Describe resource
+        cudaResourceDesc envmap_resDesc;
+        memset(&envmap_resDesc, 0, sizeof(envmap_resDesc));
+        envmap_resDesc.resType = cudaResourceTypeArray;
+        envmap_resDesc.res.array.array = dev_envmap;
+
+        // Describe sampling
+        cudaTextureDesc envmap_texDesc;
+        memset(&envmap_texDesc, 0, sizeof(envmap_texDesc));
+        envmap_texDesc.addressMode[0] = cudaAddressModeWrap;
+        envmap_texDesc.addressMode[1] = cudaAddressModeClamp;
+        envmap_texDesc.filterMode = cudaFilterModeLinear;
+        envmap_texDesc.readMode = cudaReadModeElementType;
+        envmap_texDesc.normalizedCoords = 1;
+
+        // Create texture obj
+        cudaCreateTextureObject(&envmap_texObj, &envmap_resDesc, &envmap_texDesc, nullptr);
+    }
+
     checkCUDAError("pathtraceInit");
 }
 
@@ -134,6 +222,14 @@ void pathtraceFree()
     cudaFree(dev_materials);
     cudaFree(dev_intersections);
     // TODO: clean up any extra device memory you created
+
+    // Free texture
+    if (envmap_texObj != 0) {
+        cudaDestroyTextureObject(envmap_texObj);
+        envmap_texObj = 0;
+    }
+    cudaFreeArray(dev_envmap);
+    dev_envmap = nullptr;
 
     checkCUDAError("pathtraceFree");
 }
@@ -303,14 +399,30 @@ __global__ void shadeFakeMaterial(
     }
 }
 
+// Convert from unit sphere dir to UV coord. Code from 5610
+__device__ glm::vec2 sampleSphericalMap(glm::vec3 dir) {
+    const glm::vec2 NORMALIZE_UV = glm::vec2(0.1591, 0.3183); //1/(2PI), 1/PI
+
+    // U is in the range [-PI, PI], V is [-PI/2, PI/2]
+    glm::vec2 uv = glm::vec2(std::atan2(dir.z, dir.x), -std::asin(dir.y));
+    
+    // Convert UV to [-0.5, 0.5] in U&V
+    uv *= NORMALIZE_UV;
+    
+    // Convert UV to [0, 1]
+    uv += 0.5;
+
+    return uv;
+}
+
 // TODO - SPECULAR
 __global__ void shadeDiffuseMaterial(
     int iter,
     int num_paths,
     ShadeableIntersection* shadeableIntersections,
     PathSegment* pathSegments,
-    Material* materials)
-{
+    Material* materials,
+    cudaTextureObject_t envmap) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= num_paths) {
         return;
@@ -350,7 +462,20 @@ __global__ void shadeDiffuseMaterial(
     }
     // Terminate ray
     else {
-        pathSegments[idx].color = glm::vec3(0.0f);
+        if (envmap != 0) {
+            // Sample environment map
+            glm::vec3 dir = glm::normalize(pathSegments[idx].ray.direction);
+            glm::vec2 uv = sampleSphericalMap(dir);
+            uv.x += ENV_MAP_ROTATION_DEG / 360.f;
+            float4 rgba = tex2D<float4>(envmap, uv.x, uv.y);
+
+            pathSegments[idx].color *= glm::vec3(rgba.x, rgba.y, rgba.z);
+        }
+        else {
+            // Set missed rays as black
+            pathSegments[idx].color = glm::vec3(0.0f);
+        }
+        
         pathSegments[idx].remainingBounces = 0;
     }
 }
@@ -445,10 +570,9 @@ void pathtrace(uchar4* pbo, int frame, int iter)
 
     bool iterationComplete = false;
     while (!iterationComplete) {
-        // clean shading chunks
+        // Reset intersection buffer
         cudaMemset(dev_intersections, 0, pixelcount * sizeof(ShadeableIntersection));
-        // cudaMemset(dev_path_materials, 0, pixelcount * sizeof(int));
-
+        
         // Launch kernel to computer intersections w/ each ray
         dim3 numblocksPathSegmentTracing = (num_paths + blockSize1d - 1) / blockSize1d;
         computeIntersections<<<numblocksPathSegmentTracing, blockSize1d>>> (
@@ -491,7 +615,8 @@ void pathtrace(uchar4* pbo, int frame, int iter)
             num_paths,
             dev_intersections,
             dev_paths,
-            dev_materials
+            dev_materials,
+            envmap_texObj
         );
         
 #if COMPACT_DEAD_PATHS

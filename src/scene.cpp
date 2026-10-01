@@ -6,6 +6,7 @@
 #include <glm/gtx/string_cast.hpp>
 #include "json.hpp"
 
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -116,6 +117,13 @@ void Scene::loadFromJSON(const std::string& jsonName)
         2 * yscaled / (float)camera.resolution.y);
 
     camera.view = glm::normalize(camera.lookAt - camera.position);
+
+    // Optional env map
+    const json envMap = data.value("environment_map", json());
+    if (envMap.is_string() && !envMap.get<std::string>().empty()) {
+        const std::filesystem::path sceneDir = std::filesystem::path(jsonName).parent_path();
+        envMapPath = (sceneDir / envMap.get<std::string>()).string();
+    }
 
     //set up render camera stuff
     int arraylen = camera.resolution.x * camera.resolution.y;

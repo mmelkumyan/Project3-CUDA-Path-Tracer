@@ -63,6 +63,13 @@ __host__ __device__ void scatterRay(
 
     // Update new path in place
     pathSegment.ray.origin = intersect;
-    pathSegment.ray.direction = calculateRandomDirectionInHemisphere(normal, rng); // Sample BSDF to get next dir
-    
+
+    // Specular reflection lobe
+    if (m.hasReflective > 0.f) {
+        pathSegment.ray.direction = glm::reflect(pathSegment.ray.direction, normal);
+    } 
+    // Diffuse reflection lobe
+    else {
+        pathSegment.ray.direction = calculateRandomDirectionInHemisphere(normal, rng);
+    }
 }

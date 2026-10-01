@@ -29,7 +29,7 @@
 #define COMPACT_DEAD_PATHS 1
 
 // Env map
-#define ENABLE_ENV_MAP 0
+#define ENABLE_ENV_MAP 1
 #define ENV_MAP_ROTATION_DEG 0.0f
 
 // Post process
@@ -324,7 +324,7 @@ __global__ void computeIntersections(
     {
         PathSegment pathSegment = pathSegments[path_index];
 
-        float t;
+        float t = -1.f;
         glm::vec3 intersect_point;
         glm::vec3 normal;
         float t_min = FLT_MAX;
@@ -340,14 +340,18 @@ __global__ void computeIntersections(
         {
             Geom& geom = geoms[i];
 
-            if (geom.type == CUBE)
-            {
+            if (geom.type == CUBE) {
                 t = boxIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
             }
-            else if (geom.type == SPHERE)
-            {
+            else if (geom.type == SPHERE) {
                 t = sphereIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
             }
+            else if (geom.type == SDF_SPHERE || geom.type == SDF_CUBE) {
+                t = sdfIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+            } else {
+
+            }
+
             // TODO: add more intersection tests here... triangle? metaball? CSG?
 
             // Compute the minimum t from the intersection tests to determine what

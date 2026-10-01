@@ -59,6 +59,7 @@ void Scene::loadFromJSON(const std::string& jsonName)
         {
             const auto& col = p["RGB"];
             newMaterial.color = glm::vec3(col[0], col[1], col[2]);
+            newMaterial.hasReflective = 1.f;
         }
         MatNameToID[name] = materials.size();
         materials.emplace_back(newMaterial);
@@ -68,14 +69,24 @@ void Scene::loadFromJSON(const std::string& jsonName)
     {
         const auto& type = p["TYPE"];
         Geom newGeom;
-        if (type == "cube")
-        {
+
+        if (type == "cube") {
             newGeom.type = CUBE;
         }
-        else
-        {
+        else if (type == "sphere") {
             newGeom.type = SPHERE;
         }
+        else if (type == "sdf_sphere") {
+            newGeom.type = SDF_SPHERE;
+        }
+        else if (type == "sdf_cube") {
+            newGeom.type = SDF_CUBE;
+        }
+        else {
+            cout << "Unknown object TYPE: " << type << endl;
+            exit(-1);
+        }
+        
         newGeom.materialid = MatNameToID[p["MATERIAL"]];
         const auto& trans = p["TRANS"];
         const auto& rotat = p["ROTAT"];

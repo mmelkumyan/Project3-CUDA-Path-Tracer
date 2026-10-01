@@ -34,7 +34,7 @@
 
 // Post process
 #define EXPOSURE 1.f
-#define ENABLE_GAMMA_CORRECTION 1
+#define ENABLE_GAMMA_CORRECTION 0
 
 
 #define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
@@ -234,6 +234,26 @@ void pathtraceFree()
     checkCUDAError("pathtraceFree");
 }
 
+#define PI_OVER_TWO 1.57079632679489662f
+
+__device__ glm::vec2 squareToDiskConcentric(glm::vec2 xi) {
+    glm::vec2 offset = 2.f * xi - glm::vec2(1.f, 1.f);
+
+    if (offset.x == 0.f && offset.y == 0.f) {
+        return glm::vec2(0.f);
+    }
+
+    float theta, r;
+    if (fabs(offset.x) > fabs(offset.y)) {
+        r = offset.x;
+        theta = (PI / 4.f) * (offset.y / offset.x);
+    } else {
+        r = offset.y;
+        theta = PI_OVER_TWO - (PI / 4.f) * (offset.x / offset.y);
+    }
+    return r * glm::vec2(cos(theta), sin(theta));
+}
+
 /**
 * Generate PathSegments with rays from the camera through the screen into the
 * scene, which is the first bounce of rays.
@@ -250,6 +270,10 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
     thrust::default_random_engine rng = makeSeededRandomEngine(iter, x, y);
     thrust::uniform_real_distribution<float> u01(0, 1); //u01(rng)
     
+    // TODO: add to camera class
+    float lensRadius = 1.f;
+    float focalDistance = 11.5f;
+
     if (x < cam.resolution.x && y < cam.resolution.y) {
         int index = x + (y * cam.resolution.x);
         PathSegment& segment = pathSegments[index];
@@ -265,6 +289,20 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
             - cam.right * cam.pixelLength.x * ((float)x - (float)cam.resolution.x * 0.5f + randX)
             - cam.up * cam.pixelLength.y * ((float)y - (float)cam.resolution.y * 0.5f + randY)
         );
+
+        // Apply DOF
+        if (lensRadius > 0.f) {
+            // Get random point on lens
+            glm::vec2 pLens = lensRadius * squareToDiskConcentric(glm::vec2(u01(rng), u01(rng)));
+
+            // Get point on plane of focus
+            float ft = focalDistance / glm::dot(cam.view, segment.ray.direction);
+            glm::vec3 pFocus =  segment.ray.origin + segment.ray.direction * ft;
+
+            // Update ray for effect of lens
+            segment.ray.origin += cam.right * pLens.x + cam.up * pLens.y;
+            segment.ray.direction = glm::normalize(pFocus - segment.ray.origin);
+        }
 
         segment.pixelIndex = index;
         segment.remainingBounces = traceDepth;

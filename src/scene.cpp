@@ -118,6 +118,10 @@ void Scene::loadFromJSON(const std::string& jsonName)
 
     camera.view = glm::normalize(camera.lookAt - camera.position);
 
+    // Optional DOF. Lens width of 0 = pinhole
+    camera.lensRadius = cameraData.value("LENS_RADIUS", 0.f);
+    camera.focalDistance = cameraData.value("FOCAL_DISTANCE", glm::length(camera.lookAt - camera.position));
+
     // Optional env map
     const json envMap = data.value("environment_map", json());
     if (envMap.is_string() && !envMap.get<std::string>().empty()) {

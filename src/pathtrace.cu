@@ -270,10 +270,6 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
     thrust::default_random_engine rng = makeSeededRandomEngine(iter, x, y);
     thrust::uniform_real_distribution<float> u01(0, 1); //u01(rng)
     
-    // TODO: add to camera class
-    float lensRadius = 1.f;
-    float focalDistance = 11.5f;
-
     if (x < cam.resolution.x && y < cam.resolution.y) {
         int index = x + (y * cam.resolution.x);
         PathSegment& segment = pathSegments[index];
@@ -291,12 +287,12 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
         );
 
         // Apply DOF
-        if (lensRadius > 0.f) {
+        if (cam.lensRadius > 0.f) {
             // Get random point on lens
-            glm::vec2 pLens = lensRadius * squareToDiskConcentric(glm::vec2(u01(rng), u01(rng)));
+            glm::vec2 pLens = cam.lensRadius * squareToDiskConcentric(glm::vec2(u01(rng), u01(rng)));
 
             // Get point on plane of focus
-            float ft = focalDistance / glm::dot(cam.view, segment.ray.direction);
+            float ft = cam.focalDistance / glm::dot(cam.view, segment.ray.direction);
             glm::vec3 pFocus =  segment.ray.origin + segment.ray.direction * ft;
 
             // Update ray for effect of lens

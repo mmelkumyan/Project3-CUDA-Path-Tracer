@@ -15,6 +15,15 @@
 using namespace std;
 using json = nlohmann::json;
 
+static const unordered_map<string, GeomType> STR_TO_GEOM_TYPE = {
+    {"cube",          CUBE},
+    {"sphere",        SPHERE},
+    {"sdf_sphere",    SDF_SPHERE},
+    {"sdf_cube",      SDF_CUBE},
+    {"sdf_metaballs", SDF_METABALLS},
+    {"sdf_menger",    SDF_MENGER},
+};
+
 Scene::Scene(string filename)
 {
     cout << "Reading scene from " << filename << " ..." << endl;
@@ -70,22 +79,12 @@ void Scene::loadFromJSON(const std::string& jsonName)
         const auto& type = p["TYPE"];
         Geom newGeom;
 
-        if (type == "cube") {
-            newGeom.type = CUBE;
-        }
-        else if (type == "sphere") {
-            newGeom.type = SPHERE;
-        }
-        else if (type == "sdf_sphere") {
-            newGeom.type = SDF_SPHERE;
-        }
-        else if (type == "sdf_cube") {
-            newGeom.type = SDF_CUBE;
-        }
-        else {
+        const auto geomType = STR_TO_GEOM_TYPE.find(type.get<string>());
+        if (geomType == STR_TO_GEOM_TYPE.end()) {
             cout << "Unknown object TYPE: " << type << endl;
             exit(-1);
         }
+        newGeom.type = geomType->second;
         
         newGeom.materialid = MatNameToID[p["MATERIAL"]];
         const auto& trans = p["TRANS"];

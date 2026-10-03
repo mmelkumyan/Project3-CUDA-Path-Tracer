@@ -346,10 +346,11 @@ __global__ void computeIntersections(
             else if (geom.type == SPHERE) {
                 t = sphereIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
             }
-            else if (geom.type == SDF_SPHERE || geom.type == SDF_CUBE) {
+            // All SDF types are above sphere
+            else if (geom.type >= SDF_SPHERE) {
                 t = sdfIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
             } else {
-
+                t = -1.f;
             }
 
             // TODO: add more intersection tests here... triangle? metaball? CSG?

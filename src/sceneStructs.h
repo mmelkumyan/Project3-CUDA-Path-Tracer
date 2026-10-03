@@ -14,7 +14,9 @@ enum GeomType
     SPHERE,
     CUBE,
     SDF_SPHERE,
-    SDF_CUBE
+    SDF_CUBE,
+    SDF_METABALLS,
+    SDF_MENGER
 };
 
 struct Ray

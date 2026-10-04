@@ -8,7 +8,7 @@
 #include "sceneStructs.h"
 
 
-// OPERATIONS
+// HELPERS
 __host__ __device__ inline float smoothMin(float a, float b, float k) {
     float h = glm::max(k - glm::abs(a - b), 0.f) / k;
     return glm::min(a, b) - h * h * k * 0.25f;
@@ -29,6 +29,11 @@ __host__ __device__ inline SmoothMinResult smoothMinLerp(float a, float b, float
     return SmoothMinResult{b - s, 1.f - m};
 }
 
+// https://dev.thi.ng/gradients/
+__host__ __device__ inline glm::vec3 palette(float t, glm::vec3 a, glm::vec3 b, glm::vec3 c, glm::vec3 d) {
+    t = glm::clamp(t, 0.f, 1.f);
+    return a + b * cos(6.283185f * (c * t + d));
+}
 
 // PRIMITIVES
 __host__ __device__ inline float sdfSphere(glm::vec3 query, float radius) {
@@ -77,11 +82,16 @@ __host__ __device__ inline float sdfMenger(glm::vec3 query) {
     return d;
 }
 
-__host__ __device__ inline float sdfMandelbulb(glm::vec3 query) {
+struct MandelbulbResult {
+    float dist;
+    glm::vec4 trap;
+};
+
+__host__ __device__ inline MandelbulbResult sdfMandelbulb(glm::vec3 query) {
     // Skip rays outside a radius of 1.5 from the bulb for efficiency
     float rq = glm::length(query);
     if (rq > 1.5f) {
-        return rq - 1.2f;
+        return MandelbulbResult{rq - 1.2f, glm::vec4(0.f)};
     }
 
     float power = 8.f;
@@ -91,6 +101,9 @@ __host__ __device__ inline float sdfMandelbulb(glm::vec3 query) {
     glm::vec3 z = query; // Pt in complex plane
     float dr = 1.f;
     float r = 0.f;
+
+    // How close we got to an imaginary trap
+    glm::vec4 trap(1e10f); 
 
     for (int i=0; i < maxIter; ++i) {
         r = glm::length(z);
@@ -111,8 +124,10 @@ __host__ __device__ inline float sdfMandelbulb(glm::vec3 query) {
 
         float st = sinf(theta);
         z = zr * glm::vec3(st * cosf(phi), st * sinf(phi), cosf(theta)) + query;
+
+        trap = glm::min(trap, glm::vec4(glm::abs(z), glm::dot(z,z)));
     }
-    return 0.5f * logf(r) * r / dr;
+    return MandelbulbResult{0.5f * logf(r) * r / dr, trap};
 }
 
 __host__ __device__ inline float sceneSdf(glm::vec3 query, GeomType type) {
@@ -125,7 +140,7 @@ __host__ __device__ inline float sceneSdf(glm::vec3 query, GeomType type) {
     else if (type == SDF_MENGER)
         return sdfMenger(query);
     else if (type == SDF_MANDELBULB)
-        return sdfMandelbulb(query);
+        return sdfMandelbulb(query).dist;
     else
         return INFINITY;
 }
@@ -167,6 +182,27 @@ __host__ __device__ inline void mengerMaterial(glm::vec3 query, Material& m) {
     // TODO
 }
 
+__host__ __device__ inline void mandelbulbMaterial(glm::vec3 query, Material& m) {
+    // Get the trap (dist to imaginary barrier)
+    glm::vec4 trap = sdfMandelbulb(query).trap;
+    float a = glm::smoothstep(0.4f, 1.1f, glm::clamp(trap.w, 0.f, 1.f));
+    m.hasReflective = glm::mix(0.f, 1.f, a);
+
+    // m.color = palette(a, 
+    //     glm::vec3(0.938, 0.328, 0.718),
+    //     glm::vec3(0.659, 0.438, 0.328),
+    //     glm::vec3(0.388, 0.388, 0.296),
+    //     glm::vec3(2.538, 2.478, 0.168));
+
+    // Blue -> white -> red
+    m.color = palette(a, 
+        glm::vec3(0.660, 0.560, 0.680),
+        glm::vec3(0.718, 0.438, 0.720),
+        glm::vec3(0.520, 0.800, 0.520),
+        glm::vec3(-0.430, -0.397, -0.083));
+
+}
+
 __host__ __device__ inline void sdfMaterial(glm::vec3 query, GeomType type, Material& m) {
     if (type == SDF_METABALLS) {
         metaballsMaterial(query, m);
@@ -174,8 +210,8 @@ __host__ __device__ inline void sdfMaterial(glm::vec3 query, GeomType type, Mate
     else if (type == SDF_MENGER) {
         mengerMaterial(query, m);
     }
-    // else if (type == SDF_MENGER) {
-        // mengerMaterial(query, m);
-    // }
+    else if (type == SDF_MANDELBULB) {
+        mandelbulbMaterial(query, m);
+    }
     // Otherwise default to the assignment material in the json
 }

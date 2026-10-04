@@ -113,7 +113,7 @@ __host__ __device__ float sphereIntersectionTest(
     return glm::length(r.origin - intersectionPoint);
 }
 
-#define MAX_MARCH_STEPS 64
+#define MAX_MARCH_STEPS 128
 #define T_MAX 200.f
 #define ISECT_EPSILON 0.0001f
 __host__ __device__ float sdfIntersectionTest(

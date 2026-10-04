@@ -22,6 +22,7 @@ static const unordered_map<string, GeomType> STR_TO_GEOM_TYPE = {
     {"sdf_cube",      SDF_CUBE},
     {"sdf_metaballs", SDF_METABALLS},
     {"sdf_menger",    SDF_MENGER},
+    {"sdf_mandelbulb",SDF_MANDELBULB},
 };
 
 Scene::Scene(string filename)
@@ -131,6 +132,10 @@ void Scene::loadFromJSON(const std::string& jsonName)
     // Optional DOF. Lens width of 0 = pinhole
     camera.lensRadius = cameraData.value("LENS_RADIUS", 0.f);
     camera.focalDistance = cameraData.value("FOCAL_DISTANCE", glm::length(camera.lookAt - camera.position));
+
+    // Post process
+    camera.exposure = cameraData.value("EXPOSURE", 1.f);
+    camera.gammaCorrect = cameraData.value("GAMMA_CORRECTION", false);
 
     // Optional env map
     const json envMap = data.value("environment_map", json());

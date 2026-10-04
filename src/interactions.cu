@@ -57,6 +57,7 @@ __host__ __device__ void scatterRay(
         pathSegment.color = glm::vec3(0.f);
         return;
     }
+    thrust::uniform_real_distribution<float> u01(0, 1);
     
     // Accumulate surface color
     pathSegment.color *= m.color;
@@ -64,11 +65,12 @@ __host__ __device__ void scatterRay(
     // Update new path in place
     pathSegment.ray.origin = intersect;
 
-    // Specular reflection lobe
-    if (m.hasReflective > 0.f) {
+    // TODO- new materials here!
+    // Specular lobe
+    if (u01(rng) < m.hasReflective) {
         pathSegment.ray.direction = glm::reflect(pathSegment.ray.direction, normal);
     } 
-    // Diffuse reflection lobe
+    // Diffuse lobe
     else {
         pathSegment.ray.direction = calculateRandomDirectionInHemisphere(normal, rng);
     }

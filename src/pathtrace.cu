@@ -21,6 +21,7 @@
 #include "utilities.h"
 #include "intersections.h"
 #include "interactions.h"
+#include "sdf.h"
 
 #define ERRORCHECK 1
 
@@ -31,10 +32,6 @@
 // Env map
 #define ENABLE_ENV_MAP 1
 #define ENV_MAP_ROTATION_DEG 0.0f
-
-// Post process
-#define EXPOSURE 1.f
-#define ENABLE_GAMMA_CORRECTION 0
 
 
 #define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
@@ -69,12 +66,12 @@ thrust::default_random_engine makeSeededRandomEngine(int iter, int index, int de
     return thrust::default_random_engine(h);
 }
 
-__device__ glm::ivec3 finalizeColor(glm::vec3 rgb, int iter) {
+__device__ glm::ivec3 finalizeColor(glm::vec3 rgb, int iter, float exposure, bool gammaCorrect) {
     // Average the radiance 
     rgb = rgb / (float) iter;
 
     // Exposure knob
-    rgb *= EXPOSURE;
+    rgb *= exposure;
 
     // Reinhard operator. [0,inf] -> [0,1)
     rgb = rgb / (1.f + rgb); 
@@ -82,21 +79,21 @@ __device__ glm::ivec3 finalizeColor(glm::vec3 rgb, int iter) {
     // rgb = rgb * (1.f + rgb / (Lw * Lw)) / (1.f + rgb);
 
     // Gamma correct
-#if ENABLE_GAMMA_CORRECTION
-    rgb = glm::pow(rgb, glm::vec3(1.f / 2.2f)); 
-#endif
+    if (gammaCorrect) {
+        rgb = glm::pow(rgb, glm::vec3(1.f / 2.2f)); 
+    }
 
     return glm::clamp(glm::ivec3(rgb * 255.f), 0, 255);
 } 
 
 // Kernel that writes the image to the OpenGL PBO directly.
-__global__ void sendImageToPBO(uchar4* pbo, glm::ivec2 resolution, int iter, glm::vec3* image) {
+__global__ void sendImageToPBO(uchar4* pbo, glm::ivec2 resolution, int iter, glm::vec3* image, float exposure, bool gammaCorrect) {
     int x = (blockIdx.x * blockDim.x) + threadIdx.x;
     int y = (blockIdx.y * blockDim.y) + threadIdx.y;
 
     if (x < resolution.x && y < resolution.y) {
         int index = x + (y * resolution.x);
-        glm::ivec3 color = finalizeColor(image[index], iter);
+        glm::ivec3 color = finalizeColor(image[index], iter, exposure, gammaCorrect);
 
         // Each thread writes one pixel location in the texture (textel)
         pbo[index].x = color.x;
@@ -376,6 +373,7 @@ __global__ void computeIntersections(
         else {
             intersections[path_index].t = t_min;
             intersections[path_index].materialId = geoms[hit_geom_index].materialid;
+            intersections[path_index].geomId = hit_geom_index;
             intersections[path_index].surfaceNormal = normal;
 
             // Save material ID to it's own buffer for sorting
@@ -454,14 +452,16 @@ __device__ glm::vec2 sampleSphericalMap(glm::vec3 dir) {
     return uv;
 }
 
-// TODO - SPECULAR
-__global__ void shadeDiffuseMaterial(
+
+__global__ void shadeBSDFMaterial(
     int iter,
     int num_paths,
     ShadeableIntersection* shadeableIntersections,
     PathSegment* pathSegments,
     Material* materials,
-    cudaTextureObject_t envmap) {
+    Geom* geoms,
+    cudaTextureObject_t envmap
+) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= num_paths) {
         return;
@@ -483,15 +483,21 @@ __global__ void shadeDiffuseMaterial(
         // Get material
         Material material = materials[intersection.materialId];
 
+        // For sdfs select material based on custom function 
+        const Geom& geom = geoms[intersection.geomId];
+        if (geom.type >= SDF_SPHERE) {
+            glm::vec3 worldP = pathSegments[idx].ray.origin + pathSegments[idx].ray.direction * intersection.t;
+            glm::vec3 objP = multiplyMV(geom.inverseTransform, glm::vec4(worldP, 1.f));
+            sdfMaterial(objP, geom.type, material);
+        }
+
         // If object is a light (has emittance) end ray and add color?
         // Lit rays END the recursion!
         if (material.emittance > 0.0f) {
             pathSegments[idx].color *= (material.color * material.emittance);
             pathSegments[idx].remainingBounces = 0;
         }
-
-        // If object is standard surface
-        else {
+        else { // If object is standard surface
             scatterRay(pathSegments[idx], 
                 pathSegments[idx].ray.origin + pathSegments[idx].ray.direction * intersection.t + intersection.surfaceNormal * 0.001f,
                 intersection.surfaceNormal,
@@ -649,12 +655,13 @@ void pathtrace(uchar4* pbo, int frame, int iter)
         //                     thrust::make_zip_iterator(dev_thrust_paths, dev_thrust_intersections));
 
         // Diffuse shading model
-        shadeDiffuseMaterial<<<numblocksPathSegmentTracing, blockSize1d>>>(
+        shadeBSDFMaterial<<<numblocksPathSegmentTracing, blockSize1d>>>(
             iter,
             num_paths,
             dev_intersections,
             dev_paths,
             dev_materials,
+            dev_geoms,
             envmap_texObj
         );
         
@@ -684,7 +691,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
     ///////////////////////////////////////////////////////////////////////////
 
     // Send results to OpenGL buffer for rendering
-    sendImageToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, iter, dev_image);
+    sendImageToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, iter, dev_image, cam.exposure, cam.gammaCorrect);
 
     // Retrieve image from GPU
     cudaMemcpy(hst_scene->state.image.data(), dev_image,

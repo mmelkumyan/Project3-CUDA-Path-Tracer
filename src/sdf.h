@@ -61,7 +61,7 @@ __host__ __device__ inline float sdfCross(glm::vec3 query) {
 }
 
 //https://iquilezles.org/articles/menger/
-#define MENGER_ITERATIONS 5
+#define MENGER_ITERATIONS 4
 __host__ __device__ inline float sdfMenger(glm::vec3 query) {
     float d = sdfBox(query, glm::vec3(1.f));
     glm::mat3 rotate = glm::orientate3(glm::radians(glm::vec3(15.f, 35.f, 50.f)));
@@ -204,6 +204,7 @@ __host__ __device__ inline void mandelbulbMaterial(glm::vec3 query, Material& m)
 }
 
 __host__ __device__ inline void sdfMaterial(glm::vec3 query, GeomType type, Material& m) {
+    // return;
     if (type == SDF_METABALLS) {
         metaballsMaterial(query, m);
     } 

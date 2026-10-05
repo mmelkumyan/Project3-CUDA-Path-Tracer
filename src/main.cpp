@@ -396,6 +396,7 @@ int main(int argc, char** argv)
 void saveImage()
 {
     float samples = iteration;
+    const Camera& cam = renderState->camera;
     // output image file
     Image img(width, height);
 
@@ -404,8 +405,8 @@ void saveImage()
         for (int y = 0; y < height; y++)
         {
             int index = x + (y * width);
-            glm::vec3 pix = renderState->image[index];
-            img.setPixel(width - 1 - x, y, glm::vec3(pix) / samples);
+            glm::ivec3 color = finalizeColor(renderState->image[index], iteration, cam.exposure, cam.gammaCorrect);
+            img.setPixel(width - 1 - x, y, glm::vec3(color) / 255.f);
         }
     }
 

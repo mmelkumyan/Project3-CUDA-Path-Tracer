@@ -109,7 +109,7 @@ __host__ __device__ float sphereIntersectionTest(
     return glm::length(r.origin - intersectionPoint);
 }
 
-#define MAX_MARCH_STEPS 128
+#define MAX_MARCH_STEPS 512
 #define T_MAX 200.f
 #define ISECT_EPSILON 0.0001f
 __host__ __device__ float sdfIntersectionTest(
@@ -135,13 +135,11 @@ __host__ __device__ float sdfIntersectionTest(
 
         // Get distance to surface
         dist = sceneSdf(p, sdf.type);
-
-        if (dist < ISECT_EPSILON) {
+        if (abs(dist) < ISECT_EPSILON) {
             hit = true;
             break;
         }
-
-        t += dist;
+        t += fabsf(dist);
     } 
 
     if (hit) {
@@ -151,7 +149,6 @@ __host__ __device__ float sdfIntersectionTest(
         outside = true; // FIXME?
         return glm::length(r.origin - intersectionPoint);
     } else {
-
         return -1.f;
     }
 }

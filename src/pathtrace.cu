@@ -66,7 +66,7 @@ thrust::default_random_engine makeSeededRandomEngine(int iter, int index, int de
     return thrust::default_random_engine(h);
 }
 
-__device__ glm::ivec3 finalizeColor(glm::vec3 rgb, int iter, float exposure, bool gammaCorrect) {
+__host__ __device__ glm::ivec3 finalizeColor(glm::vec3 rgb, int iter, float exposure, bool gammaCorrect) {
     // Average the radiance 
     rgb = rgb / (float) iter;
 

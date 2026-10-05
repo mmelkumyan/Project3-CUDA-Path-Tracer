@@ -1,5 +1,5 @@
 {
-    "environment_map": "../env_maps/interior_atelier_soft_daylight.hdr",
+    "environment_map": "../env_maps/Tropical_Beach_3k.hdr",
     "Materials":
     {
         "light":
@@ -28,6 +28,12 @@
             "TYPE":"Specular",
             "RGB":[0.98, 0.98, 0.98],
             "ROUGHNESS":0.0
+        },
+        "glass":
+        {
+            "TYPE": "Refractive",
+            "RGB": [1.0, 1.0, 1.0],
+            "IOR": 1.5
         }
     },
     "Camera":
@@ -40,7 +46,7 @@
         "EYE":[0.0,5.0,10.5],
         "LOOKAT":[0.0,5.0,0.0],
         "UP":[0.0,1.0,0.0],
-        "LENS_RADIUS":1.0,
+        "LENS_RADIUS":0.0,
         "FOCAL_DISTANCE":11.5,
         "EXPOSURE":1.0,
         "GAMMA_CORRECTION":false
@@ -92,9 +98,16 @@
         {
             "TYPE":"sphere",
             "MATERIAL":"specular_white",
-            "TRANS":[-1.0,4.0,-1.0],
+            "TRANS":[-2.0,4.0,-1.0],
             "ROTAT":[0.0,0.0,0.0],
-            "SCALE":[3.0,3.0,3.0]
+            "SCALE":[4.0,4.0,4.0]
+        },
+        {
+            "TYPE":"sphere",
+            "MATERIAL":"glass",
+            "TRANS":[2.0,4.0,-1.0],
+            "ROTAT":[0.0,0.0,0.0],
+            "SCALE":[4.0,4.0,4.0]
         }
     ]
 }

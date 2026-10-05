@@ -499,7 +499,7 @@ __global__ void shadeBSDFMaterial(
         }
         else { // If object is standard surface
             scatterRay(pathSegments[idx], 
-                pathSegments[idx].ray.origin + pathSegments[idx].ray.direction * intersection.t + intersection.surfaceNormal * 0.001f,
+                pathSegments[idx].ray.origin + pathSegments[idx].ray.direction * intersection.t,
                 intersection.surfaceNormal,
                 material,
                 rng);

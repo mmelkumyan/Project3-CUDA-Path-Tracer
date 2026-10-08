@@ -38,16 +38,16 @@
     },
     "Camera":
     {
-        "RES":[800,800],
+        "RES":[400,400],
         "FOVY":45.0,
         "ITERATIONS":5000,
         "DEPTH":8,
-        "FILE":"cornell",
-        "EYE":[-2.194,6.154,1.891],
-        "LOOKAT":[-0.892,4.500,-3.548],
+        "FILE":"sdf_mandelbulb_4",
+        "EYE":[-2.682,5.896,1.189],
+        "LOOKAT":[-1.962,4.500,-4.118],
         "UP":[0.0,1.0,0.0],
-        "LENS_RADIUS":0.01,
-        "FOCAL_DISTANCE":0.91,
+        "LENS_RADIUS":0.00,
+        "FOCAL_DISTANCE":1.1,
         "EXPOSURE":0.5,
         "GAMMA_CORRECTION":true
     },

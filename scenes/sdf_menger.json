@@ -6,7 +6,7 @@
         {
             "TYPE":"Emitting",
             "RGB":[1.0, 1.0, 1.0],
-            "EMITTANCE":5.0
+            "EMITTANCE":20.0
         },
         "diffuse_white":
         {
@@ -43,13 +43,13 @@
         "ITERATIONS":5000,
         "DEPTH":32,
         "FILE":"cornell",
-        "EYE":[0.0,5.0,10.5],
-        "LOOKAT":[0.0,5.0,0.0],
+        "EYE":[7.296,3.431,-15.467],
+        "LOOKAT":[-0.168,5.000,-6.361],
         "UP":[0.0,1.0,0.0],
         "LENS_RADIUS":0.0,
         "FOCAL_DISTANCE":11.5,
         "EXPOSURE":1.0,
-        "GAMMA_CORRECTION":true
+        "GAMMA_CORRECTION":false
     },
     "Objects":
     [
@@ -59,6 +59,13 @@
             "TRANS":[0.0,5.0,-5.0],
             "ROTAT":[0.0,0.0,0.0],
             "SCALE":[5.0,5.0,5.0]
+        },
+        {
+            "TYPE":"cube",
+            "MATERIAL":"light",
+            "TRANS":[0.0,30.0,-5.0],
+            "ROTAT":[0.0,0.0,0.0],
+            "SCALE":[8.0,0.3,8.0]
         }
     ]
 }
